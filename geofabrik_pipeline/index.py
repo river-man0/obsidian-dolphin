@@ -126,15 +126,15 @@ class GeofabrikIndex:
         return False
 
     def select_extracts(self, bbox: BBox) -> List[Region]:
-        """Pick the *most granular* ``.shp.zip`` extracts covering the extent.
+        """Pick the *most granular* ``.osm.pbf`` extracts covering the extent.
 
-        Among all shp-bearing regions intersecting the extent we drop any region
+        Among all pbf-bearing regions intersecting the extent we drop any region
         that is an ancestor of another selected region. That prefers, say, the
         individual German states over the whole-Germany extract, minimising the
         download while still covering the requested area.
         """
         candidates = self.intersecting(bbox)
-        candidates = candidates[candidates["shp_url"].notna()]
+        candidates = candidates[candidates["pbf_url"].notna()]
         ids = list(candidates["id"])
         selected = []
         for region_id in ids:

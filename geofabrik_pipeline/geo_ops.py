@@ -62,7 +62,10 @@ def keep_polygonal(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # Pull polygonal parts out of any GeometryCollections that make_valid produced.
     extracted = gdf.copy()
     extracted[extracted.geometry.name] = extracted.geometry.apply(_polygonal_part)
-    extracted = extracted[~extracted.geometry.is_empty & extracted.geometry.notna()]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        keep = ~extracted.geometry.is_empty & extracted.geometry.notna()
+    extracted = extracted[keep]
     types = extracted.geom_type
     return extracted[types.isin(["Polygon", "MultiPolygon"])]
 

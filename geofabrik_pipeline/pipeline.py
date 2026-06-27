@@ -1,11 +1,11 @@
-"""End-to-end orchestration: index -> extracts -> clean layers -> GeoPackage."""
+"""End-to-end orchestration: index + PBF -> clean layers -> GeoPackage/Parquet."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import geopandas as gpd
 
@@ -13,11 +13,28 @@ from . import layers
 from .download import Downloader
 from .geo_ops import BBox
 from .index import DEFAULT_INDEX_URL, GeofabrikIndex
+from .osm import OsmExtract
 
 log = logging.getLogger("geofabrik_pipeline")
 
 # Default simplify tolerance in degrees (~10 m at the equator): "slightly".
 DEFAULT_SIMPLIFY = 0.0001
+
+# Layer key -> output layer name in the GeoPackage / Parquet file stem.
+LAYER_NAMES = {
+    "countries": "countries",
+    "water": "water_bodies",
+    "roads": "roads",
+    "airports": "airports",
+    "population": "population_centres",
+    "military": "military",
+}
+ALL_LAYERS = tuple(LAYER_NAMES)
+
+# Which layers are derived from the (heavy) PBF extracts.
+PBF_LAYERS = {"water", "roads", "airports", "population", "military"}
+
+SUPPORTED_FORMATS = ("gpkg", "parquet")
 
 
 @dataclass
@@ -26,7 +43,8 @@ class PipelineConfig:
     output: Path
     simplify: float = DEFAULT_SIMPLIFY
     clip: bool = True
-    layers: Sequence[str] = ("countries", "water")
+    layers: Sequence[str] = ALL_LAYERS
+    formats: Sequence[str] = ("gpkg",)
     regions: Optional[Sequence[str]] = None  # force specific extract ids
     cache_dir: Path = field(default_factory=lambda: Path(".geofabrik_cache"))
     index_url: str = DEFAULT_INDEX_URL
@@ -37,82 +55,104 @@ class Pipeline:
         self.config = config
         self.downloader = downloader or Downloader(config.cache_dir)
 
-    # ---- stages -----------------------------------------------------------
+    # ---- ingest -----------------------------------------------------------
 
     def load_index(self) -> GeofabrikIndex:
         log.info("Loading Geofabrik index from %s", self.config.index_url)
         return GeofabrikIndex.load(self.downloader, self.config.index_url)
 
-    def resolve_extracts(self, index: GeofabrikIndex) -> List[str]:
-        """Resolve the set of shp.zip sources to read water bodies from."""
+    def resolve_extracts(self, index: GeofabrikIndex) -> List[OsmExtract]:
+        """Download and wrap the ``.osm.pbf`` extract(s) covering the extent."""
         if self.config.regions:
             regions = [index.get(r) for r in self.config.regions]
-            missing = [r.id for r in regions if not r.shp_url]
+            missing = [r.id for r in regions if not r.pbf_url]
             if missing:
-                raise ValueError(
-                    f"Regions have no shapefile extract available: {missing}"
-                )
+                raise ValueError(f"Regions have no PBF extract available: {missing}")
         else:
             regions = index.select_extracts(self.config.bbox)
 
         if not regions:
-            log.warning(
-                "No Geofabrik shapefile extract covers the requested extent."
-            )
-        else:
-            log.info(
-                "Selected %d extract(s): %s",
-                len(regions),
-                ", ".join(r.id for r in regions),
-            )
-        return [self.downloader.fetch(r.shp_url).as_posix() for r in regions]
+            log.warning("No Geofabrik PBF extract covers the requested extent.")
+            return []
 
-    def build_countries(self, index: GeofabrikIndex) -> gpd.GeoDataFrame:
-        log.info("Building country polygons")
-        gdf = layers.build_country_layer(
-            index, self.config.bbox, self.config.simplify, self.config.clip
+        log.info(
+            "Selected %d extract(s): %s",
+            len(regions),
+            ", ".join(r.id for r in regions),
         )
-        log.info("  %d country polygon(s)", len(gdf))
-        return gdf
+        extracts = []
+        for region in regions:
+            log.info("Fetching %s", region.pbf_url)
+            path = self.downloader.fetch(region.pbf_url)
+            extracts.append(OsmExtract(path.as_posix(), self.config.bbox))
+        return extracts
 
-    def build_water(self, index: GeofabrikIndex) -> gpd.GeoDataFrame:
-        log.info("Building water-body polygons (excluding oceans)")
-        sources = self.resolve_extracts(index)
-        gdf = layers.build_water_layer(
-            sources, self.config.bbox, self.config.simplify, self.config.clip
-        )
-        log.info("  %d water-body polygon(s)", len(gdf))
-        return gdf
+    # ---- build ------------------------------------------------------------
 
-    # ---- driver -----------------------------------------------------------
-
-    def run(self) -> Path:
+    def build_layers(self) -> Dict[str, gpd.GeoDataFrame]:
+        cfg = self.config
         index = self.load_index()
-        output = Path(self.config.output)
+
+        extracts: List[OsmExtract] = []
+        if any(layer in PBF_LAYERS for layer in cfg.layers):
+            extracts = self.resolve_extracts(index)
+
+        built: Dict[str, gpd.GeoDataFrame] = {}
+        for key in cfg.layers:
+            name = LAYER_NAMES[key]
+            log.info("Building '%s'", name)
+            built[name] = self._build_one(key, index, extracts)
+            log.info("  %d feature(s)", len(built[name]))
+        return built
+
+    def _build_one(self, key, index, extracts) -> gpd.GeoDataFrame:
+        cfg = self.config
+        if key == "countries":
+            return layers.build_country_layer(index, cfg.bbox, cfg.simplify, cfg.clip)
+        if key == "water":
+            return layers.build_water_layer(extracts, cfg.bbox, cfg.simplify, cfg.clip)
+        if key == "roads":
+            return layers.build_roads_layer(extracts, cfg.bbox, cfg.simplify, cfg.clip)
+        if key == "airports":
+            return layers.build_airports_layer(extracts, cfg.bbox, cfg.clip)
+        if key == "population":
+            return layers.build_population_layer(extracts, cfg.bbox, cfg.clip)
+        if key == "military":
+            return layers.build_military_layer(extracts, cfg.bbox, cfg.simplify, cfg.clip)
+        raise ValueError(f"Unknown layer: {key}")
+
+    # ---- write ------------------------------------------------------------
+
+    def run(self) -> List[Path]:
+        if not self.config.layers:
+            raise ValueError("No layers selected to build.")
+        built = self.build_layers()
+        outputs: List[Path] = []
+        if "gpkg" in self.config.formats:
+            outputs.append(self._write_gpkg(built))
+        if "parquet" in self.config.formats:
+            outputs.extend(self._write_parquet(built))
+        log.info("Wrote: %s", ", ".join(p.name for p in outputs))
+        return outputs
+
+    def _write_gpkg(self, built: Dict[str, gpd.GeoDataFrame]) -> Path:
+        output = Path(self.config.output).with_suffix(".gpkg")
         output.parent.mkdir(parents=True, exist_ok=True)
         if output.exists():
-            output.unlink()  # GeoPackage append would otherwise stack stale layers
-
-        wrote_any = False
-        if "countries" in self.config.layers:
-            countries = self.build_countries(index)
-            self._write_layer(countries, "countries", output)
-            wrote_any = True
-
-        if "water" in self.config.layers:
-            water = self.build_water(index)
-            self._write_layer(water, "water_bodies", output)
-            wrote_any = True
-
-        if not wrote_any:
-            raise ValueError("No layers selected to build.")
-
-        log.info("Wrote %s", output)
+            output.unlink()  # avoid stacking stale layers on append
+        for name, gdf in built.items():
+            gdf.to_file(output, layer=name, driver="GPKG")
+            log.info("  gpkg layer '%s' (%d)", name, len(gdf))
         return output
 
-    @staticmethod
-    def _write_layer(gdf: gpd.GeoDataFrame, layer: str, output: Path) -> None:
-        # Always create the layer, even when empty, so downstream consumers find
-        # a predictable schema.
-        gdf.to_file(output, layer=layer, driver="GPKG")
-        log.info("  -> layer '%s' (%d features)", layer, len(gdf))
+    def _write_parquet(self, built: Dict[str, gpd.GeoDataFrame]) -> List[Path]:
+        # Parquet is one table per file, so each layer becomes its own GeoParquet.
+        base = Path(self.config.output)
+        base.parent.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for name, gdf in built.items():
+            path = base.with_name(f"{base.stem}_{name}.parquet")
+            gdf.to_parquet(path)
+            log.info("  parquet '%s' (%d)", path.name, len(gdf))
+            paths.append(path)
+        return paths

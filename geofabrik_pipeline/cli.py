@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .index import DEFAULT_INDEX_URL
-from .pipeline import DEFAULT_SIMPLIFY, Pipeline, PipelineConfig
+from .pipeline import ALL_LAYERS, DEFAULT_SIMPLIFY, Pipeline, PipelineConfig
 from .download import Downloader
 
 
@@ -16,9 +16,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="geofabrik-pipeline",
         description=(
-            "Ingest OpenStreetMap data from download.geofabrik.de and produce a "
-            "clipped, simplified GeoPackage of country polygons and inland "
-            "water bodies (oceans excluded)."
+            "Ingest OpenStreetMap .osm.pbf extracts from download.geofabrik.de "
+            "and produce clipped, simplified GeoPackage/GeoParquet layers: "
+            "country polygons, inland water bodies (oceans excluded), a minimal "
+            "road network, airports, population centres and military areas."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -35,22 +36,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("geofabrik.gpkg"),
-        help="Output GeoPackage path.",
+        help="Output path. Suffix is set per format (.gpkg / .parquet).",
     )
     parser.add_argument(
         "--layers",
         nargs="+",
-        choices=("countries", "water"),
-        default=["countries", "water"],
+        choices=ALL_LAYERS,
+        default=list(ALL_LAYERS),
         help="Which layers to build.",
+    )
+    parser.add_argument(
+        "--format",
+        dest="formats",
+        nargs="+",
+        choices=("gpkg", "parquet"),
+        default=["gpkg"],
+        help="Output format(s). Parquet writes one file per layer.",
     )
     parser.add_argument(
         "--region",
         dest="regions",
         action="append",
         help=(
-            "Force a specific Geofabrik region id for water extracts (e.g. "
-            "'europe/germany'). Repeatable. Default: auto-select by extent."
+            "Force a specific Geofabrik region id for PBF extracts (e.g. "
+            "'north-america/canada'). Repeatable. Default: auto-select by extent."
         ),
     )
     parser.add_argument(
@@ -96,6 +105,7 @@ def main(argv=None) -> int:
         simplify=args.simplify,
         clip=not args.no_clip,
         layers=tuple(args.layers),
+        formats=tuple(args.formats),
         regions=args.regions,
         cache_dir=args.cache_dir,
         index_url=args.index_url,

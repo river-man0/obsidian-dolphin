@@ -7,6 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
+from .geo_ops import EXTENT_SYNTAX, NAMED_EXTENTS, resolve_extent
 from .index import DEFAULT_INDEX_URL
 from .pipeline import ALL_LAYERS, DEFAULT_SIMPLIFY, Pipeline, PipelineConfig
 from .download import Downloader
@@ -23,13 +24,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    extent = parser.add_mutually_exclusive_group(required=True)
+    extent.add_argument(
         "--bbox",
         nargs=4,
         type=float,
         metavar=("MIN_LON", "MIN_LAT", "MAX_LON", "MAX_LAT"),
-        required=True,
         help="Extent to clip to, in WGS84 degrees (lon/lat).",
+    )
+    extent.add_argument(
+        "--extent",
+        metavar="NAME",
+        help=(
+            "Named full-width extent instead of --bbox: "
+            f"{', '.join(sorted(set(NAMED_EXTENTS)))}; or a latitude band "
+            f"({EXTENT_SYNTAX}). These span all longitudes, so the antimeridian "
+            "is never crossed."
+        ),
     )
     parser.add_argument(
         "-o",
@@ -74,6 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Keep whole geometries instead of clipping to the extent.",
     )
     parser.add_argument(
+        "--allow-large-pbf",
+        action="store_true",
+        help=(
+            "Permit auto-selecting PBF extracts over a planet-scale extent "
+            "(huge download). The 'countries' layer is unaffected."
+        ),
+    )
+    parser.add_argument(
         "--cache-dir",
         type=Path,
         default=Path(".geofabrik_cache"),
@@ -99,14 +118,22 @@ def main(argv=None) -> int:
     # pyogrio chats at INFO on every write ("Created N records"); keep it quiet.
     logging.getLogger("pyogrio").setLevel(logging.WARNING)
 
+    log = logging.getLogger("geofabrik_pipeline")
+    try:
+        bbox = tuple(args.bbox) if args.bbox else resolve_extent(args.extent)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 2
+
     config = PipelineConfig(
-        bbox=tuple(args.bbox),
+        bbox=bbox,
         output=args.output,
         simplify=args.simplify,
         clip=not args.no_clip,
         layers=tuple(args.layers),
         formats=tuple(args.formats),
         regions=args.regions,
+        allow_large_pbf=args.allow_large_pbf,
         cache_dir=args.cache_dir,
         index_url=args.index_url,
     )

@@ -11,7 +11,7 @@ import geopandas as gpd
 
 from . import layers
 from .download import Downloader
-from .geo_ops import BBox
+from .geo_ops import BBox, bbox_area_sqdeg
 from .index import DEFAULT_INDEX_URL, GeofabrikIndex
 from .osm import OsmExtract
 
@@ -19,6 +19,11 @@ log = logging.getLogger("geofabrik_pipeline")
 
 # Default simplify tolerance in degrees (~10 m at the equator): "slightly".
 DEFAULT_SIMPLIFY = 0.0001
+
+# Above this extent area (sq.deg) the auto-selector would pull PBF extracts for
+# nearly the whole planet, so building PBF layers there needs an explicit opt-in.
+# ~10,000 sq.deg is roughly a 100x100-degree box; a hemisphere is ~32,400.
+LARGE_EXTENT_SQDEG = 10_000.0
 
 # Layer key -> output layer name in the GeoPackage / Parquet file stem.
 LAYER_NAMES = {
@@ -46,6 +51,7 @@ class PipelineConfig:
     layers: Sequence[str] = ALL_LAYERS
     formats: Sequence[str] = ("gpkg",)
     regions: Optional[Sequence[str]] = None  # force specific extract ids
+    allow_large_pbf: bool = False  # opt in to PBF layers over a huge extent
     cache_dir: Path = field(default_factory=lambda: Path(".geofabrik_cache"))
     index_url: str = DEFAULT_INDEX_URL
 
@@ -69,6 +75,7 @@ class Pipeline:
             if missing:
                 raise ValueError(f"Regions have no PBF extract available: {missing}")
         else:
+            self._guard_large_extent()
             regions = index.select_extracts(self.config.bbox)
 
         if not regions:
@@ -86,6 +93,25 @@ class Pipeline:
             path = self.downloader.fetch(region.pbf_url)
             extracts.append(OsmExtract(path.as_posix(), self.config.bbox))
         return extracts
+
+    def _guard_large_extent(self) -> None:
+        """Block auto-selecting PBF extracts over a planet-scale extent.
+
+        Reached only when PBF layers are requested *and* no ``--region`` was
+        given (the auto-select path). The country layer is index-only and never
+        gets here, so it stays freely usable at any extent.
+        """
+        cfg = self.config
+        area = bbox_area_sqdeg(cfg.bbox)
+        if area <= LARGE_EXTENT_SQDEG or cfg.allow_large_pbf:
+            return
+        pbf = sorted(layer for layer in cfg.layers if layer in PBF_LAYERS)
+        raise ValueError(
+            f"Extent spans ~{area:,.0f} sq.deg; auto-selecting PBF extracts for "
+            f"{pbf} would download data for nearly the whole planet. Restrict to "
+            "'--layers countries', name explicit '--region' ids, or pass "
+            "'--allow-large-pbf' to override."
+        )
 
     # ---- build ------------------------------------------------------------
 

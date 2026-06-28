@@ -79,11 +79,51 @@ geofabrik-pipeline --bbox -141 41 -52 84 -o canada.gpkg \
     --region north-america/canada
 ```
 
+### Named extents (hemispheres and latitude bands)
+
+Large bands that span every longitude — a hemisphere, or "everything north of
+40°N" — are awkward to express as a `--bbox` and easy to get wrong around the
+antimeridian. Use `--extent` instead (mutually exclusive with `--bbox`):
+
+```bash
+# Every country polygon in the northern hemisphere:
+geofabrik-pipeline --extent northern-hemisphere --layers countries -o north.gpkg
+
+# Everything north of 40°N:
+geofabrik-pipeline --extent north-of:40 --layers countries -o arctic.gpkg
+```
+
+| `--extent` value | Resulting bbox (`min_lon min_lat max_lon max_lat`) |
+| --- | --- |
+| `global` / `world` | `-180 -90 180 90` |
+| `northern-hemisphere` / `northern` | `-180 0 180 90` |
+| `southern-hemisphere` / `southern` | `-180 -90 180 0` |
+| `eastern-hemisphere` / `eastern` | `0 -90 180 90` |
+| `western-hemisphere` / `western` | `-180 -90 0 90` |
+| `north-of:LAT` | `-180 LAT 180 90` |
+| `south-of:LAT` | `-180 -90 180 LAT` |
+| `lat-band:LO:HI` | `-180 LO 180 HI` |
+
+Every named extent spans the full `-180..180` longitude range, so it is always a
+valid `min_lon < max_lon` box and never straddles the ±180 antimeridian — that
+wrap problem only arises for boxes that cross 180° (e.g. Fiji), which still need
+to be split into two runs.
+
+> **Heads-up on size.** A hemisphere-scale extent intersects almost every
+> Geofabrik region, so building the **PBF-derived** layers (`water`, `roads`,
+> `airports`, `population`, `military`) there would auto-download extracts for
+> nearly the whole planet. To prevent surprise multi-hundred-GB downloads the
+> pipeline refuses that combination unless you pass `--allow-large-pbf`, or name
+> explicit `--region` ids. The `countries` layer is index-only and always works
+> at any extent.
+
 Common options:
 
 | Option | Description |
 | --- | --- |
-| `--bbox MIN_LON MIN_LAT MAX_LON MAX_LAT` | Extent to clip to (required). |
+| `--bbox MIN_LON MIN_LAT MAX_LON MAX_LAT` | Extent to clip to (required unless `--extent`). |
+| `--extent NAME` | Named hemisphere / latitude-band extent instead of `--bbox`. |
+| `--allow-large-pbf` | Permit PBF layers over a planet-scale extent (huge download). |
 | `-o, --output PATH` | Output path; suffix is set per format. |
 | `--layers ...` | Any of `countries water roads airports population military` (default: all). |
 | `--format gpkg parquet` | One or both output formats (default `gpkg`). |

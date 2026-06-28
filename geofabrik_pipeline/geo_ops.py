@@ -31,6 +31,74 @@ def bbox_polygon(bbox: BBox):
     return box(min_lon, min_lat, max_lon, max_lat)
 
 
+def bbox_area_sqdeg(bbox: BBox) -> float:
+    """Planar area of the extent in square degrees (a crude size proxy)."""
+    min_lon, min_lat, max_lon, max_lat = bbox
+    return (max_lon - min_lon) * (max_lat - min_lat)
+
+
+# Named, full-longitude extents. Hemisphere / latitude-band requests span the
+# whole -180..180 width, so they never straddle the antimeridian and stay valid
+# ``min_lon < max_lon`` boxes -- which is exactly why they are easier to express
+# as a name than to type out (and impossible to get the ``+/-180`` wrap wrong).
+NAMED_EXTENTS: dict = {
+    "global": (-180.0, -90.0, 180.0, 90.0),
+    "world": (-180.0, -90.0, 180.0, 90.0),
+    "northern-hemisphere": (-180.0, 0.0, 180.0, 90.0),
+    "northern": (-180.0, 0.0, 180.0, 90.0),
+    "southern-hemisphere": (-180.0, -90.0, 180.0, 0.0),
+    "southern": (-180.0, -90.0, 180.0, 0.0),
+    "eastern-hemisphere": (0.0, -90.0, 180.0, 90.0),
+    "eastern": (0.0, -90.0, 180.0, 90.0),
+    "western-hemisphere": (-180.0, -90.0, 0.0, 90.0),
+    "western": (-180.0, -90.0, 0.0, 90.0),
+}
+
+# Parametric latitude-band forms, e.g. ``north-of:40`` or ``lat-band:10:40``.
+EXTENT_SYNTAX = "north-of:LAT | south-of:LAT | lat-band:MIN_LAT:MAX_LAT"
+
+
+def _check_lat(lat: float) -> float:
+    if not -90.0 <= lat <= 90.0:
+        raise ValueError(f"latitude {lat} is outside [-90, 90]")
+    return lat
+
+
+def resolve_extent(spec: str) -> BBox:
+    """Resolve a named or parametric extent to a ``(min_lon, min_lat, max_lon, max_lat)`` bbox.
+
+    Accepts a named extent (``northern-hemisphere``, ``southern-hemisphere``,
+    ``eastern-hemisphere``, ``western-hemisphere``, ``global``) or a parametric
+    latitude band: ``north-of:LAT`` (everything from ``LAT`` to the pole),
+    ``south-of:LAT`` (pole to ``LAT``), or ``lat-band:LO:HI``. All span the full
+    longitude range, so the antimeridian is never crossed.
+    """
+    key = spec.strip().lower()
+    if key in NAMED_EXTENTS:
+        return NAMED_EXTENTS[key]
+    if ":" in key:
+        head, _, rest = key.partition(":")
+        try:
+            if head in ("north-of", "above"):
+                return (-180.0, _check_lat(float(rest)), 180.0, 90.0)
+            if head in ("south-of", "below"):
+                return (-180.0, -90.0, 180.0, _check_lat(float(rest)))
+            if head in ("lat-band", "band"):
+                lo_s, sep, hi_s = rest.partition(":")
+                if not sep:
+                    raise ValueError("expected 'lat-band:MIN_LAT:MAX_LAT'")
+                lo, hi = _check_lat(float(lo_s)), _check_lat(float(hi_s))
+                if lo >= hi:
+                    raise ValueError(f"MIN_LAT {lo} must be < MAX_LAT {hi}")
+                return (-180.0, lo, 180.0, hi)
+        except ValueError as exc:
+            raise ValueError(f"Invalid extent {spec!r}: {exc}") from exc
+    names = sorted(set(NAMED_EXTENTS))
+    raise ValueError(
+        f"Unknown extent {spec!r}. Use one of {names}, or {EXTENT_SYNTAX}."
+    )
+
+
 def make_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Repair invalid geometries (self-intersections, bow-ties, ...).
 

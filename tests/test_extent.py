@@ -81,6 +81,32 @@ def test_large_extent_allowed_with_override(synthetic_dataset, tmp_path):
     assert len(extracts) == 1
 
 
+def test_list_extracts_returns_granular_regions(synthetic_dataset, tmp_path):
+    # A global extent intersects every region; the whole-country extract is an
+    # ancestor of the northern one, so only the granular descendant is listed.
+    cfg = PipelineConfig(
+        bbox=resolve_extent("global"),
+        output=tmp_path / "out.gpkg",
+        index_url=synthetic_dataset["index_path"].as_uri(),
+        cache_dir=tmp_path / "cache",
+    )
+    regions = Pipeline(cfg, Downloader(tmp_path / "cache")).list_extracts()
+    assert [r.id for r in regions] == ["europe/wonderland/north"]
+    # Listing never downloads, so it is not blocked by the large-extent guard.
+
+
+def test_list_extracts_honours_explicit_regions(synthetic_dataset, tmp_path):
+    cfg = PipelineConfig(
+        bbox=resolve_extent("global"),
+        output=tmp_path / "out.gpkg",
+        regions=["europe/wonderland"],
+        index_url=synthetic_dataset["index_path"].as_uri(),
+        cache_dir=tmp_path / "cache",
+    )
+    regions = Pipeline(cfg, Downloader(tmp_path / "cache")).list_extracts()
+    assert [r.id for r in regions] == ["europe/wonderland"]
+
+
 def test_large_extent_does_not_block_countries(synthetic_dataset, tmp_path):
     # countries is index-only and never resolves extracts, so a huge extent is fine.
     cfg = PipelineConfig(

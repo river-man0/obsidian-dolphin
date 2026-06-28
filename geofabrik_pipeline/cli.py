@@ -93,6 +93,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--list-extracts",
+        action="store_true",
+        help=(
+            "Print the granular PBF region id(s) covering the extent (one per "
+            "line) and exit, without downloading or building. Feed them back in "
+            "one at a time via --region to batch a large extent."
+        ),
+    )
+    parser.add_argument(
         "--cache-dir",
         type=Path,
         default=Path(".geofabrik_cache"),
@@ -139,9 +148,16 @@ def main(argv=None) -> int:
     )
     downloader = Downloader(args.cache_dir)
     try:
-        Pipeline(config, downloader).run()
+        pipeline = Pipeline(config, downloader)
+        if args.list_extracts:
+            regions = pipeline.list_extracts()
+            log.info("%d extract(s) cover the extent", len(regions))
+            for region in regions:
+                print(region.id)
+            return 0
+        pipeline.run()
     except Exception as exc:  # surface a clean message, full trace in verbose
-        logging.getLogger("geofabrik_pipeline").error("%s", exc)
+        log.error("%s", exc)
         if args.verbose:
             raise
         return 1

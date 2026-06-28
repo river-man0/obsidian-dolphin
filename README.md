@@ -117,6 +117,30 @@ to be split into two runs.
 > explicit `--region` ids. The `countries` layer is index-only and always works
 > at any extent.
 
+#### Batching a large extent one region at a time
+
+`--list-extracts` prints the granular PBF region id(s) covering an extent (one
+per line, to stdout) and exits without downloading anything — so you can loop
+over them and pull each extract separately, clipping every run to the same band:
+
+```bash
+# See what a band covers (only the index is fetched):
+geofabrik-pipeline --extent north-of:60 --list-extracts
+
+# Build roads for each covered region, clipped to north-of:60, into out/:
+mkdir -p out
+for region in $(geofabrik-pipeline --extent north-of:60 --list-extracts); do
+    geofabrik-pipeline --region "$region" --extent north-of:60 \
+        --layers roads --format parquet -o "out/${region//\//_}"
+done
+```
+
+The selection is the same "most granular extract" logic the auto-selector uses
+(`--region` here just covers one at a time). It is hierarchy-based, so an
+occasional broad region (e.g. `asia`) can still appear alongside finer ones that
+overlap it geographically — eyeball the list and drop any you don't want before
+batching.
+
 Common options:
 
 | Option | Description |
@@ -124,6 +148,7 @@ Common options:
 | `--bbox MIN_LON MIN_LAT MAX_LON MAX_LAT` | Extent to clip to (required unless `--extent`). |
 | `--extent NAME` | Named hemisphere / latitude-band extent instead of `--bbox`. |
 | `--allow-large-pbf` | Permit PBF layers over a planet-scale extent (huge download). |
+| `--list-extracts` | Print the region id(s) covering the extent and exit (for batching). |
 | `-o, --output PATH` | Output path; suffix is set per format. |
 | `--layers ...` | Any of `countries water roads airports population military` (default: all). |
 | `--format gpkg parquet` | One or both output formats (default `gpkg`). |

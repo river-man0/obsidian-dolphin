@@ -12,7 +12,7 @@ import geopandas as gpd
 from . import layers
 from .download import Downloader
 from .geo_ops import BBox, bbox_area_sqdeg
-from .index import DEFAULT_INDEX_URL, GeofabrikIndex
+from .index import DEFAULT_INDEX_URL, GeofabrikIndex, Region
 from .osm import OsmExtract
 
 log = logging.getLogger("geofabrik_pipeline")
@@ -66,6 +66,19 @@ class Pipeline:
     def load_index(self) -> GeofabrikIndex:
         log.info("Loading Geofabrik index from %s", self.config.index_url)
         return GeofabrikIndex.load(self.downloader, self.config.index_url)
+
+    def list_extracts(self) -> List[Region]:
+        """The PBF extract region(s) covering the extent, without downloading.
+
+        Mirrors what :meth:`resolve_extracts` would auto-select (or the explicit
+        ``--region`` ids), so callers can enumerate the granular regions and
+        batch them one ``--region`` at a time instead of pulling a planet-scale
+        extent in a single run. Loading the index is the only network access.
+        """
+        index = self.load_index()
+        if self.config.regions:
+            return [index.get(r) for r in self.config.regions]
+        return index.select_extracts(self.config.bbox)
 
     def resolve_extracts(self, index: GeofabrikIndex) -> List[OsmExtract]:
         """Download and wrap the ``.osm.pbf`` extract(s) covering the extent."""

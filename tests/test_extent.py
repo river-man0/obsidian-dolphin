@@ -16,6 +16,15 @@ def test_named_hemispheres():
     assert resolve_extent("global") == (-180.0, -90.0, 180.0, 90.0)
 
 
+def test_named_polar_circles():
+    arctic = resolve_extent("arctic-circle")
+    assert arctic[1] == pytest.approx(66.5627)  # min_lat at Arctic Circle
+    assert arctic == resolve_extent("arctic")
+    antarctic = resolve_extent("antarctic-circle")
+    assert antarctic[3] == pytest.approx(-66.5627)  # max_lat at Antarctic Circle
+    assert antarctic == resolve_extent("antarctic")
+
+
 def test_named_extents_are_case_and_alias_insensitive():
     assert resolve_extent("Northern") == resolve_extent("NORTHERN-HEMISPHERE")
     assert resolve_extent("world") == resolve_extent("global")

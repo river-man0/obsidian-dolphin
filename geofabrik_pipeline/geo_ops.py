@@ -52,6 +52,10 @@ NAMED_EXTENTS: dict = {
     "eastern": (0.0, -90.0, 180.0, 90.0),
     "western-hemisphere": (-180.0, -90.0, 0.0, 90.0),
     "western": (-180.0, -90.0, 0.0, 90.0),
+    "arctic-circle": (-180.0, 66.5627, 180.0, 90.0),
+    "arctic": (-180.0, 66.5627, 180.0, 90.0),
+    "antarctic-circle": (-180.0, -90.0, 180.0, -66.5627),
+    "antarctic": (-180.0, -90.0, 180.0, -66.5627),
 }
 
 # Parametric latitude-band forms, e.g. ``north-of:40`` or ``lat-band:10:40``.

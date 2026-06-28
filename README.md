@@ -90,7 +90,10 @@ antimeridian. Use `--extent` instead (mutually exclusive with `--bbox`):
 geofabrik-pipeline --extent northern-hemisphere --layers countries -o north.gpkg
 
 # Everything north of 40°N:
-geofabrik-pipeline --extent north-of:40 --layers countries -o arctic.gpkg
+geofabrik-pipeline --extent north-of:40 --layers countries -o north40.gpkg
+
+# Arctic region (north of the Arctic Circle, ~66.56°N):
+geofabrik-pipeline --extent arctic-circle --layers countries -o arctic.gpkg
 ```
 
 | `--extent` value | Resulting bbox (`min_lon min_lat max_lon max_lat`) |
@@ -100,6 +103,8 @@ geofabrik-pipeline --extent north-of:40 --layers countries -o arctic.gpkg
 | `southern-hemisphere` / `southern` | `-180 -90 180 0` |
 | `eastern-hemisphere` / `eastern` | `0 -90 180 90` |
 | `western-hemisphere` / `western` | `-180 -90 0 90` |
+| `arctic-circle` / `arctic` | `-180 66.5627 180 90` |
+| `antarctic-circle` / `antarctic` | `-180 -90 180 -66.5627` |
 | `north-of:LAT` | `-180 LAT 180 90` |
 | `south-of:LAT` | `-180 -90 180 LAT` |
 | `lat-band:LO:HI` | `-180 LO 180 HI` |

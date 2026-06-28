@@ -90,6 +90,22 @@ def test_large_extent_allowed_with_override(synthetic_dataset, tmp_path):
     assert len(extracts) == 1
 
 
+def test_list_regions_returns_all_pbf_regions(synthetic_dataset, tmp_path):
+    cfg = PipelineConfig(
+        bbox=(0.0, 0.0, 1.0, 1.0),  # dummy
+        output=tmp_path / "out.gpkg",
+        index_url=synthetic_dataset["index_path"].as_uri(),
+        cache_dir=tmp_path / "cache",
+    )
+    regions = Pipeline(cfg, Downloader(tmp_path / "cache")).list_regions()
+    # The synthetic dataset has 2 regions with PBF: europe/wonderland and
+    # europe/wonderland/north. Both should be listed and sorted by id.
+    ids = [r.id for r in regions]
+    assert "europe/wonderland" in ids
+    assert "europe/wonderland/north" in ids
+    assert ids == sorted(ids)  # sorted by id
+
+
 def test_list_extracts_returns_granular_regions(synthetic_dataset, tmp_path):
     # A global extent intersects every region; the whole-country extract is an
     # ancestor of the northern one, so only the granular descendant is listed.

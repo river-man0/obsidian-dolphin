@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    extent = parser.add_mutually_exclusive_group(required=True)
+    extent = parser.add_mutually_exclusive_group(required=False)
     extent.add_argument(
         "--bbox",
         nargs=4,
@@ -102,6 +102,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--list-regions",
+        action="store_true",
+        help=(
+            "Print all available Geofabrik PBF download regions (id, name, "
+            "parent, iso2) and exit. The extent and output are ignored."
+        ),
+    )
+    parser.add_argument(
         "--cache-dir",
         type=Path,
         default=Path(".geofabrik_cache"),
@@ -128,6 +136,38 @@ def main(argv=None) -> int:
     logging.getLogger("pyogrio").setLevel(logging.WARNING)
 
     log = logging.getLogger("geofabrik_pipeline")
+
+    # Early exit for --list-regions (doesn't need bbox/extent).
+    if args.list_regions:
+        try:
+            config = PipelineConfig(
+                bbox=(0.0, 0.0, 1.0, 1.0),  # dummy, unused
+                output=args.output,
+                index_url=args.index_url,
+                cache_dir=args.cache_dir,
+            )
+            regions = Pipeline(config).list_regions()
+            log.info("%d region(s) with PBF downloads", len(regions))
+            # Print as tab-separated: id, name, parent, iso2
+            for region in regions:
+                parts = [region.id, region.name or region.id]
+                if region.parent:
+                    parts.append(region.parent)
+                if region.iso2:
+                    parts.append(region.iso2)
+                print("\t".join(parts))
+            return 0
+        except Exception as exc:
+            log.error("%s", exc)
+            if args.verbose:
+                raise
+            return 1
+
+    # Normal pipeline run requires bbox or extent.
+    if not args.bbox and not args.extent:
+        log.error("Either --bbox or --extent is required (or use --list-regions).")
+        return 2
+
     try:
         bbox = tuple(args.bbox) if args.bbox else resolve_extent(args.extent)
     except ValueError as exc:

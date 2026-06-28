@@ -122,6 +122,25 @@ to be split into two runs.
 > explicit `--region` ids. The `countries` layer is index-only and always works
 > at any extent.
 
+### Browsing available regions
+
+The `--list-regions` flag prints all Geofabrik regions with PBF downloads
+available, one per line (tab-separated: id, name, parent, iso2). This is
+useful for discovering which regions you can pass to `--region`, or for
+finding the granular extracts that cover a specific area. The listing
+queries only the index; no extraction or download happens.
+
+```bash
+# Browse all 555 available regions:
+geofabrik-pipeline --list-regions
+
+# Find all Canadian regions:
+geofabrik-pipeline --list-regions | grep -i canada
+
+# Extract the id of a specific region for use with --region:
+geofabrik-pipeline --list-regions | grep "^british-columbia"
+```
+
 #### Batching a large extent one region at a time
 
 `--list-extracts` prints the granular PBF region id(s) covering an extent (one
@@ -154,6 +173,7 @@ Common options:
 | `--extent NAME` | Named hemisphere / latitude-band extent instead of `--bbox`. |
 | `--allow-large-pbf` | Permit PBF layers over a planet-scale extent (huge download). |
 | `--list-extracts` | Print the region id(s) covering the extent and exit (for batching). |
+| `--list-regions` | Print all available Geofabrik PBF download regions and exit. |
 | `-o, --output PATH` | Output path; suffix is set per format. |
 | `--layers ...` | Any of `countries water roads airports population military` (default: all). |
 | `--format gpkg parquet` | One or both output formats (default `gpkg`). |

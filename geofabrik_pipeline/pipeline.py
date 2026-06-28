@@ -67,6 +67,15 @@ class Pipeline:
         log.info("Loading Geofabrik index from %s", self.config.index_url)
         return GeofabrikIndex.load(self.downloader, self.config.index_url)
 
+    def list_regions(self) -> List[Region]:
+        """All Geofabrik regions with PBF downloads available, sorted by id.
+
+        Useful for discovering which regions can be pulled via ``--region``.
+        """
+        index = self.load_index()
+        regions = [r for r in index._by_id.values() if r.pbf_url]
+        return sorted(regions, key=lambda r: r.id)
+
     def list_extracts(self) -> List[Region]:
         """The PBF extract region(s) covering the extent, without downloading.
 
